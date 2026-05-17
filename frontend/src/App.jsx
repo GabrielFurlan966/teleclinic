@@ -217,7 +217,12 @@ const styles = `
   .btn-danger:hover { background: #ff475740; }
   .btn-sm { padding: 7px 12px; font-size: 12px; border-radius: 8px; }
   .btn:disabled { opacity: .5; cursor: not-allowed; transform: none !important; }
-
+  .btn-accent-sm {
+    background: linear-gradient(135deg, var(--accent), #00b894);
+    color: #000; font-size: 12px; padding: 6px 14px; border-radius: 8px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-accent-sm:hover { transform: translateY(-1px); box-shadow: 0 4px 12px #00d4aa40; }
   /* ── Layout ── */
   .layout { display: flex; min-height: 100vh; }
 
@@ -389,6 +394,14 @@ const styles = `
     border: 3px solid #ffffff15;
     border-top-color: var(--accent);
   }
+    
+  /* ── Pagination ── */
+  .pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-top: 1px solid var(--border);
+    font-size: 13px; color: var(--muted);
+  }
+  .pagination-btns { display: flex; gap: 8px; }
 
   /* ── Full page loader ── */
   .page-loader {
@@ -694,19 +707,26 @@ function Sidebar({ user, page, setPage, onLogout }) {
 // ── Doctor Dashboard ─────────────────────────────────────────────────────────
 function DoctorDashboard({ token, user }) {
   const [appts, setAppts] = useState([]);
+  const [allAppts, setAllAppts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const LIMIT = 8;
 
   useEffect(() => {
     apiFetch("/appointments/", {}, token)
-      .then(setAppts)
+      .then((a) => setAllAppts(a))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    setAppts(allAppts.slice(page * LIMIT, (page + 1) * LIMIT));
+  }, [allAppts, page]);
+
   const counts = {
-    total: appts.length,
-    scheduled: appts.filter((a) => a.status === "scheduled").length,
-    completed: appts.filter((a) => a.status === "completed").length,
-    cancelled: appts.filter((a) => a.status === "cancelled").length,
+    total: allAppts.length,
+    scheduled: allAppts.filter((a) => a.status === "scheduled").length,
+    completed: allAppts.filter((a) => a.status === "completed").length,
+    cancelled: allAppts.filter((a) => a.status === "cancelled").length,
   };
 
   return (
@@ -754,7 +774,7 @@ function DoctorDashboard({ token, user }) {
               </tr>
             </thead>
             <tbody>
-              {appts.slice(0, 8).map((a) => (
+              {appts.map((a) => (
                 <tr key={a.id}>
                   <td>{a.patient?.full_name || "—"}</td>
                   <td>
@@ -774,6 +794,27 @@ function DoctorDashboard({ token, user }) {
             </tbody>
           </table>
         )}
+        <div className="pagination">
+          <span>
+            Page {page + 1} of {Math.ceil(counts.total / LIMIT) || 1}
+          </span>
+          <div className="pagination-btns">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page === 0}
+            >
+              ← Prev
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={(page + 1) * LIMIT >= counts.total}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
@@ -784,6 +825,9 @@ function DoctorAppointments({ token, user }) {
   const [appts, setAppts] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const LIMIT = 10;
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
     patient_id: "",
@@ -795,18 +839,21 @@ function DoctorAppointments({ token, user }) {
 
   const load = () =>
     Promise.all([
-      apiFetch("/appointments/", {}, token),
+      apiFetch(`/appointments/?skip=${page * LIMIT}&limit=${LIMIT}`, {}, token),
       apiFetch("/users/", {}, token),
     ])
       .then(([a, u]) => {
         setAppts(a);
+        setTotal(
+          a.length < LIMIT ? page * LIMIT + a.length : (page + 1) * LIMIT + 1,
+        );
         setUsers(u);
       })
       .finally(() => setLoading(false));
 
   useEffect(() => {
     load();
-  }, []);
+  }, [page]);
 
   const patients = users.filter((u) => u.role === "patient");
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -877,7 +924,7 @@ function DoctorAppointments({ token, user }) {
         <div className="card-header">
           <h3>All Appointments</h3>
           <button
-            className="btn btn-primary btn-sm"
+            className="btn btn-accent-sm"
             onClick={() => setShowModal(true)}
           >
             <Icon.Plus /> New
@@ -947,6 +994,25 @@ function DoctorAppointments({ token, user }) {
             </tbody>
           </table>
         )}
+        <div className="pagination">
+          <span>Page {page + 1}</span>
+          <div className="pagination-btns">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page === 0}
+            >
+              ← Prev
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={appts.length < LIMIT}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </div>
 
       {showModal && (
@@ -1018,12 +1084,15 @@ function DoctorAppointments({ token, user }) {
 function PatientsList({ token }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const LIMIT = 10;
 
   useEffect(() => {
-    apiFetch("/users/", {}, token)
+    setLoading(true);
+    apiFetch(`/users/?skip=${page * LIMIT}&limit=${LIMIT + 1}`, {}, token)
       .then((u) => setUsers(u.filter((x) => x.role === "patient")))
       .finally(() => setLoading(false));
-  }, []);
+  }, [page]);
 
   return (
     <>
@@ -1049,7 +1118,7 @@ function PatientsList({ token }) {
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
+              {users.slice(0, LIMIT).map((u) => (
                 <tr key={u.id}>
                   <td>
                     <div
@@ -1078,6 +1147,25 @@ function PatientsList({ token }) {
             </tbody>
           </table>
         )}
+        <div className="pagination">
+          <span>Page {page + 1}</span>
+          <div className="pagination-btns">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page === 0}
+            >
+              ← Prev
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={users.length <= LIMIT}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
@@ -1389,22 +1477,12 @@ function Shell({ auth, onLogout }) {
 export default function App() {
   const [auth, setAuth] = useState(null);
 
-  async function handleLogout() {
-    try {
-      await apiFetch("/auth/logout", { method: "POST" }, auth.token);
-    } catch (e) {
-      console.error("Logout error:", e);
-    } finally {
-      setAuth(null);
-    }
-  }
-
   return (
     <ToastProvider>
       <style>{styles}</style>
       <div className="app">
         {auth ? (
-          <Shell auth={auth} onLogout={handleLogout} />
+          <Shell auth={auth} onLogout={() => setAuth(null)} />
         ) : (
           <Login onLogin={setAuth} />
         )}
