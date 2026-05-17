@@ -1,9 +1,20 @@
+import json
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
 from app.models.appointment import Appointment, AppointmentStatus
 from app.models.user import User, UserRole
 from app.schemas.appointment import AppointmentCreate, AppointmentUpdate
+from app.core.redis import get_redis
+
+CACHE_TTL = 60
+
+
+def _invalidate_cache():
+    redis = get_redis()
+    keys = redis.keys("appointments:*")
+    if keys:
+        redis.delete(*keys)
 
 
 def get_appointment(db: Session, appointment_id: int) -> Appointment:
@@ -14,15 +25,34 @@ def get_appointment(db: Session, appointment_id: int) -> Appointment:
 
 
 def get_appointments(db: Session, skip: int = 0, limit: int = 20) -> list[Appointment]:
-    return db.query(Appointment).offset(skip).limit(limit).all()
+    redis = get_redis()
+    cache_key = f"appointments:list:{skip}:{limit}"
+
+    cached = redis.get(cache_key)
+    if cached:
+        ids = json.loads(cached)
+        return db.query(Appointment).filter(Appointment.id.in_(ids)).all()
+
+    appts = db.query(Appointment).offset(skip).limit(limit).all()
+    redis.setex(cache_key, CACHE_TTL, json.dumps([a.id for a in appts]))
+    return appts
 
 
 def get_patient_appointments(db: Session, patient_id: int) -> list[Appointment]:
-    return db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
+    redis = get_redis()
+    cache_key = f"appointments:patient:{patient_id}"
+
+    cached = redis.get(cache_key)
+    if cached:
+        ids = json.loads(cached)
+        return db.query(Appointment).filter(Appointment.id.in_(ids)).all()
+
+    appts = db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
+    redis.setex(cache_key, CACHE_TTL, json.dumps([a.id for a in appts]))
+    return appts
 
 
 def create_appointment(db: Session, appt_in: AppointmentCreate, current_doctor: User) -> Appointment:
-    # Validate patient exists
     patient = db.query(User).filter(User.id == appt_in.patient_id).first()
     if not patient or patient.role != UserRole.patient:
         raise HTTPException(
@@ -39,6 +69,7 @@ def create_appointment(db: Session, appt_in: AppointmentCreate, current_doctor: 
     db.add(appointment)
     db.commit()
     db.refresh(appointment)
+    _invalidate_cache()
     return appointment
 
 
@@ -54,6 +85,7 @@ def update_appointment(db: Session, appointment_id: int, appt_in: AppointmentUpd
         setattr(appt, field, value)
     db.commit()
     db.refresh(appt)
+    _invalidate_cache()
     return appt
 
 
@@ -62,4 +94,5 @@ def cancel_appointment(db: Session, appointment_id: int) -> Appointment:
     appt.status = AppointmentStatus.cancelled
     db.commit()
     db.refresh(appt)
+    _invalidate_cache()
     return appt
