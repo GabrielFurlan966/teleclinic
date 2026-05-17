@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REDIS_HOST: str = "redis"
+    REDIS_PORT: int = 6379
 
     class Config:
         env_file = ".env"
