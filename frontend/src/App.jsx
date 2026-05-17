@@ -1389,12 +1389,22 @@ function Shell({ auth, onLogout }) {
 export default function App() {
   const [auth, setAuth] = useState(null);
 
+  async function handleLogout() {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" }, auth.token);
+    } catch (e) {
+      console.error("Logout error:", e);
+    } finally {
+      setAuth(null);
+    }
+  }
+
   return (
     <ToastProvider>
       <style>{styles}</style>
       <div className="app">
         {auth ? (
-          <Shell auth={auth} onLogout={() => setAuth(null)} />
+          <Shell auth={auth} onLogout={handleLogout} />
         ) : (
           <Login onLogin={setAuth} />
         )}
